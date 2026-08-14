@@ -240,6 +240,24 @@ async function persistRecord(record) {
   saveLocalRecords();
 }
 
+async function deleteRecord(recordId) {
+  const client = getSupabaseClient();
+
+  if (client) {
+    const { error } = await client.from('furniture').delete().eq('id', recordId);
+    if (error) {
+      throw error;
+    }
+    records = await loadRecords();
+    renderRecords();
+    return;
+  }
+
+  records = records.filter((r) => r.id !== recordId);
+  saveLocalRecords();
+  renderRecords();
+}
+
 async function createRecord() {
   const record = getRecordFromForm();
   const validationMessage = validateRecord(record);
@@ -252,6 +270,7 @@ async function createRecord() {
   try {
     await persistRecord(record);
     records = await loadRecords();
+    renderRecords();
     showQr(record);
     setFormMessage(`Listo. Generaste la etiqueta de ${record.id}.`);
   } catch (error) {
@@ -306,7 +325,23 @@ function renderRecords() {
     viewButton.textContent = 'Ver ficha';
     viewButton.addEventListener('click', () => renderPublicRecord(record));
 
-    actions.append(generateButton, viewButton);
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'button-secondary';
+    deleteButton.textContent = 'Borrar';
+    deleteButton.addEventListener('click', async () => {
+      if (confirm(`¿Borrar ${record.name}?`)) {
+        try {
+          await deleteRecord(record.id);
+          setFormMessage(`Se borró ${record.id}.`);
+        } catch (error) {
+          console.error('Error al borrar:', error);
+          setFormMessage('No se pudo borrar el registro.', true);
+        }
+      }
+    });
+
+    actions.append(generateButton, viewButton, deleteButton);
     item.append(code, name, meta, actions);
     savedRecords.append(item);
   });

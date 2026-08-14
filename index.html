@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Genera etiquetas QR para el inventario de muebles." />
+  <title>QR de Muebles</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Inventario de oficina</p>
+        <h1>QR de muebles</h1>
+        <p class="intro">Crea una ficha y pega su codigo QR en cada mueble.</p>
+      </div>
+      <span class="header-status">Guardado en este equipo</span>
+    </header>
+
+    <section id="public-record" class="public-record" hidden aria-live="polite"></section>
+
+    <section id="admin-app" class="workspace">
+      <section class="panel form-panel" aria-labelledby="form-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Nuevo registro</p>
+            <h2 id="form-title">Datos del mueble</h2>
+          </div>
+          <span id="asset-code" class="asset-code"></span>
+        </div>
+
+        <form id="furniture-form">
+          <div class="form-grid">
+            <label>
+              Tipo
+              <select id="type" name="type" required>
+                <option value="">Selecciona uno</option>
+                <option>Escritorio</option>
+                <option>Silla</option>
+                <option>Archivador</option>
+                <option>Mesa</option>
+                <option>Estante</option>
+                <option>Otro</option>
+              </select>
+            </label>
+            <label>
+              Oficina
+              <input id="location" name="location" type="text" placeholder="Ej. Oficina 2, piso 1" required maxlength="70" />
+            </label>
+            <label>
+              Estado
+              <select id="status" name="status" required>
+                <option>Disponible</option>
+                <option>En uso</option>
+                <option>En mantenimiento</option>
+                <option>Para baja</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            Observaciones
+            <textarea id="notes" name="notes" placeholder="Garantia, medidas o indicaciones utiles. No incluyas datos privados." maxlength="180"></textarea>
+          </label>
+          <p id="form-message" class="form-message" role="status"></p>
+          <div class="form-actions">
+            <button type="submit">Crear QR</button>
+            <button id="clear-form-btn" class="button-secondary" type="button">Limpiar</button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="side-column">
+        <section class="panel qr-panel" aria-labelledby="qr-title">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">Etiqueta</p>
+              <h2 id="qr-title">Codigo QR</h2>
+            </div>
+          </div>
+          <div id="qr-placeholder" class="qr-placeholder">Completa la ficha para generar su etiqueta.</div>
+          <div id="qrcode" class="qr-code" aria-label="Codigo QR generado"></div>
+          <p id="qr-label" class="qr-label" hidden></p>
+          <button id="download-qr-btn" class="button-secondary download-button" type="button" disabled>Descargar PNG</button>
+        </section>
+
+        <section class="panel scanner-panel" aria-labelledby="scan-title">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">Consulta</p>
+              <h2 id="scan-title">Escanear QR</h2>
+            </div>
+          </div>
+          <p class="scanner-copy">Puedes usar la camara del telefono o probar una etiqueta desde aqui.</p>
+          <div class="scanner-controls">
+            <button id="start-scan-btn" class="button-secondary" type="button">Abrir camara</button>
+            <button id="stop-scan-btn" class="icon-button" type="button" disabled aria-label="Cerrar camara" title="Cerrar camara">&times;</button>
+          </div>
+          <div id="reader" class="scanner" hidden></div>
+          <p id="scan-result" class="scan-result" role="status">La camara esta apagada.</p>
+        </section>
+      </aside>
+    </section>
+
+    <section id="saved-records-section" class="saved-records" aria-labelledby="saved-title">
+      <div class="saved-heading">
+        <div>
+          <p class="eyebrow">En este navegador</p>
+          <h2 id="saved-title">Muebles registrados</h2>
+        </div>
+        <span id="record-count" class="record-count">0 muebles</span>
+      </div>
+      <div id="saved-records" class="records-list"></div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.10/minified/html5-qrcode.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

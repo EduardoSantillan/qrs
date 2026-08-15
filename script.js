@@ -17,10 +17,6 @@ const qrLabel = document.getElementById('qr-label');
 const downloadQrButton = document.getElementById('download-qr-btn');
 const savedRecords = document.getElementById('saved-records');
 const recordCount = document.getElementById('record-count');
-const startScanButton = document.getElementById('start-scan-btn');
-const stopScanButton = document.getElementById('stop-scan-btn');
-const reader = document.getElementById('reader');
-const scanResult = document.getElementById('scan-result');
 const headerStatus = document.querySelector('.header-status');
 const savedTitle = document.getElementById('saved-title');
 
@@ -574,32 +570,3 @@ form.addEventListener('submit', (event) => {
   event.preventDefault();
   createRecord();
 });
-
-photoInput.addEventListener('change', () => {
-  const file = photoInput.files && photoInput.files[0];
-  if (!file) {
-    photoPreview.hidden = true;
-    photoPreviewImage.src = '';
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = () => {
-    photoPreviewImage.src = String(reader.result || '');
-    photoPreview.hidden = false;
-  };
-  reader.readAsDataURL(file);
-});
-
-document.getElementById('clear-form-btn').addEventListener('click', resetForm);
-downloadQrButton.addEventListener('click', downloadQr);
-startScanButton.addEventListener('click', startScanner);
-stopScanButton.addEventListener('click', () => stopScanner());
-
-window.addEventListener('beforeunload', () => {
-  if (html5QrCode) {
-    html5QrCode.stop().catch(() => {});
-  }
-});
-
-initialize();

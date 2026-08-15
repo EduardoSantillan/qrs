@@ -8,6 +8,9 @@ const savedRecordsSection = document.getElementById('saved-records-section');
 const publicRecord = document.getElementById('public-record');
 const assetCode = document.getElementById('asset-code');
 const formMessage = document.getElementById('form-message');
+const photoInput = document.getElementById('photo');
+const photoPreview = document.getElementById('photo-preview');
+const photoPreviewImage = document.getElementById('photo-preview-image');
 const qrContainer = document.getElementById('qrcode');
 const qrPlaceholder = document.getElementById('qr-placeholder');
 const qrLabel = document.getElementById('qr-label');
@@ -18,6 +21,8 @@ const startScanButton = document.getElementById('start-scan-btn');
 const stopScanButton = document.getElementById('stop-scan-btn');
 const reader = document.getElementById('reader');
 const scanResult = document.getElementById('scan-result');
+const headerStatus = document.querySelector('.header-status');
+const savedTitle = document.getElementById('saved-title');
 
 let records = [];
 let generatedRecord = null;
@@ -78,6 +83,8 @@ function setFormMessage(message = '', isError = false) {
 
 function resetForm() {
   form.reset();
+  photoPreview.hidden = true;
+  photoPreviewImage.src = '';
   assetCode.textContent = nextAssetCode();
   setFormMessage();
   generatedRecord = null;
@@ -88,10 +95,21 @@ function resetForm() {
   downloadQrButton.disabled = true;
 }
 
-function getRecordFromForm() {
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('No se pudo leer la foto.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function getRecordFromForm() {
   const data = new FormData(form);
   const type = String(data.get('type') || '').trim();
   const location = String(data.get('location') || '').trim();
+  const selectedFile = photoInput.files && photoInput.files[0] ? photoInput.files[0] : null;
+  const photo = selectedFile ? await fileToDataUrl(selectedFile) : '';
 
   return {
     id: assetCode.textContent,
@@ -100,6 +118,7 @@ function getRecordFromForm() {
     location,
     status: String(data.get('status') || '').trim(),
     notes: String(data.get('notes') || '').trim(),
+    photo,
   };
 }
 
@@ -227,6 +246,7 @@ async function persistRecord(record) {
       location: record.location,
       status: record.status,
       notes: record.notes || '',
+      photo: record.photo || '',
     };
 
     const { error } = await client.from('furniture').upsert([payload], { onConflict: 'id' });
@@ -259,7 +279,7 @@ async function deleteRecord(recordId) {
 }
 
 async function createRecord() {
-  const record = getRecordFromForm();
+  const record = await getRecordFromForm();
   const validationMessage = validateRecord(record);
 
   if (validationMessage) {
@@ -298,6 +318,14 @@ function renderRecords() {
     const code = document.createElement('span');
     code.className = 'record-code';
     code.textContent = record.id;
+
+    if (record.photo) {
+      const photo = document.createElement('img');
+      photo.className = 'record-photo';
+      photo.src = record.photo;
+      photo.alt = record.name;
+      item.append(photo);
+    }
 
     const name = document.createElement('p');
     name.className = 'record-name';
@@ -391,6 +419,17 @@ function renderPublicRecord(record) {
 
   const details = document.createElement('div');
   details.className = 'record-details';
+
+  if (record.photo) {
+    const photoWrap = document.createElement('div');
+    photoWrap.className = 'public-photo';
+    const photo = document.createElement('img');
+    photo.src = record.photo;
+    photo.alt = record.name;
+    photoWrap.append(photo);
+    details.append(photoWrap);
+  }
+
   addDetail(details, 'Tipo', record.type);
   addDetail(details, 'Ubicacion', record.location);
   addDetail(details, 'Estado', record.status);
@@ -497,8 +536,24 @@ async function stopScanner(showStoppedMessage = true) {
   }
 }
 
+function updateStorageModeLabel() {
+  if (!headerStatus || !savedTitle) {
+    return;
+  }
+
+  if (hasSupabaseConfig()) {
+    headerStatus.textContent = 'Guardado en Supabase';
+    savedTitle.textContent = 'Inventario compartido';
+    return;
+  }
+
+  headerStatus.textContent = 'Guardado en este equipo';
+  savedTitle.textContent = 'Muebles registrados';
+}
+
 async function initialize() {
   records = await loadRecords();
+  updateStorageModeLabel();
 
   if (hasSupabaseConfig()) {
     setFormMessage('Usando inventario compartido en Supabase.');
@@ -518,6 +573,22 @@ async function initialize() {
 form.addEventListener('submit', (event) => {
   event.preventDefault();
   createRecord();
+});
+
+photoInput.addEventListener('change', () => {
+  const file = photoInput.files && photoInput.files[0];
+  if (!file) {
+    photoPreview.hidden = true;
+    photoPreviewImage.src = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    photoPreviewImage.src = String(reader.result || '');
+    photoPreview.hidden = false;
+  };
+  reader.readAsDataURL(file);
 });
 
 document.getElementById('clear-form-btn').addEventListener('click', resetForm);

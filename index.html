@@ -62,6 +62,13 @@
             Observaciones
             <textarea id="notes" name="notes" placeholder="Garantia, medidas o indicaciones utiles. No incluyas datos privados." maxlength="180"></textarea>
           </label>
+          <label>
+            Foto del mueble
+            <input id="photo" name="photo" type="file" accept="image/*" />
+          </label>
+          <div id="photo-preview" class="photo-preview" hidden>
+            <img id="photo-preview-image" alt="Vista previa de la foto" />
+          </div>
           <p id="form-message" class="form-message" role="status"></p>
           <div class="form-actions">
             <button type="submit">Crear QR</button>

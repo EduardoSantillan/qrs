@@ -2,6 +2,8 @@ const STORAGE_KEY = 'qr-muebles-registros-v1';
 const QR_SIZE = 240;
 const APP_CONFIG = window.APP_CONFIG || {};
 
+console.log('Script cargado. APP_CONFIG:', APP_CONFIG);
+
 const form = document.getElementById('furniture-form');
 const adminApp = document.getElementById('admin-app');
 const savedRecordsSection = document.getElementById('saved-records-section');
@@ -286,9 +288,13 @@ async function createRecord() {
   }
 
   try {
+    console.log('Guardando record:', record);
     await persistRecord(record);
+    console.log('Record guardado, cargando lista...');
     records = await loadRecords();
+    console.log('Lista cargada:', records);
     renderRecords();
+    console.log('Mostrando QR para:', record);
     showQr(record);
     setFormMessage(`Listo. Generaste la etiqueta de ${record.id}.`);
   } catch (error) {
@@ -569,6 +575,7 @@ async function initialize() {
 }
 
 form.addEventListener('submit', (event) => {
+  console.log('Form submit triggered');
   event.preventDefault();
   createRecord();
 });

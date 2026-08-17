@@ -191,8 +191,10 @@ function showQr(record) {
 
   try {
     qrContainer.replaceChildren();
+    const qrUrl = buildRecordUrl(record);
+    console.log('QR URL:', qrUrl);
     new QRCode(qrContainer, {
-      text: buildRecordUrl(record),
+      text: qrUrl,
       width: QR_SIZE,
       height: QR_SIZE,
       correctLevel: QRCode.CorrectLevel.M,

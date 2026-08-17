@@ -1,5 +1,5 @@
 window.APP_CONFIG = {
-  supabaseUrl: 'https://aaxwzsjylemugukndihw.supabase.co',
-  supabaseAnonKey: 'sb_publishable_OUMTUjkJKUr75P6zx9d4DA_Itcc7Tsv',
+  supabaseUrl: 'https://dqyhegywadfcmpcxpmwq.supabase.co',
+  supabaseAnonKey: 'sb_publishable_OPCK3XCxlR_wrFHu42cm8A_hB4xiP1-',
   localFallback: true,
 };

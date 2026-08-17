@@ -1,581 +1,353 @@
-const STORAGE_KEY = 'qr-muebles-registros-v1';
-const QR_SIZE = 240;
-const APP_CONFIG = window.APP_CONFIG || {};
+// ---------------------------------------------------------------------------
+// Config y cliente de Supabase (con fallback a localStorage)
+// ---------------------------------------------------------------------------
+const CONFIG = window.APP_CONFIG || {};
+const STORAGE_KEY = 'furniture-records';
 
-console.log('Script cargado. APP_CONFIG:', APP_CONFIG);
+let supabaseClient = null;
+if (CONFIG.supabaseUrl && CONFIG.supabaseAnonKey && window.supabase) {
+  try {
+    supabaseClient = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
+  } catch (err) {
+    console.warn('No se pudo iniciar Supabase, se usará almacenamiento local.', err);
+    supabaseClient = null;
+  }
+}
 
-const form = document.getElementById('furniture-form');
+// ---------------------------------------------------------------------------
+// Elementos del DOM
+// ---------------------------------------------------------------------------
+const publicRecordSection = document.getElementById('public-record');
 const adminApp = document.getElementById('admin-app');
 const savedRecordsSection = document.getElementById('saved-records-section');
-const publicRecord = document.getElementById('public-record');
-const assetCode = document.getElementById('asset-code');
-const formMessage = document.getElementById('form-message');
+
+const furnitureForm = document.getElementById('furniture-form');
+const typeInput = document.getElementById('type');
+const locationInput = document.getElementById('location');
+const statusInput = document.getElementById('status');
+const notesInput = document.getElementById('notes');
 const photoInput = document.getElementById('photo');
 const photoPreview = document.getElementById('photo-preview');
 const photoPreviewImage = document.getElementById('photo-preview-image');
-const qrContainer = document.getElementById('qrcode');
+const assetCodeLabel = document.getElementById('asset-code');
+const formMessage = document.getElementById('form-message');
+const clearFormBtn = document.getElementById('clear-form-btn');
+
 const qrPlaceholder = document.getElementById('qr-placeholder');
+const qrContainer = document.getElementById('qrcode');
 const qrLabel = document.getElementById('qr-label');
-const downloadQrButton = document.getElementById('download-qr-btn');
-const savedRecords = document.getElementById('saved-records');
-const recordCount = document.getElementById('record-count');
-const headerStatus = document.querySelector('.header-status');
-const savedTitle = document.getElementById('saved-title');
+const downloadQrBtn = document.getElementById('download-qr-btn');
 
-let records = [];
-let generatedRecord = null;
-let html5QrCode = null;
-let supabaseClient = null;
+const recordCountLabel = document.getElementById('record-count');
+const savedRecordsList = document.getElementById('saved-records');
 
-function hasSupabaseConfig() {
-  return Boolean(
-    APP_CONFIG.supabaseUrl
-    && APP_CONFIG.supabaseAnonKey
-    && !APP_CONFIG.supabaseUrl.includes('YOUR_')
-    && !APP_CONFIG.supabaseAnonKey.includes('YOUR_')
-  );
+let currentAssetId = null;
+let currentQrCode = null;
+
+// ---------------------------------------------------------------------------
+// Utilidades
+// ---------------------------------------------------------------------------
+function generateId() {
+  return 'M-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
 }
 
-function getSupabaseClient() {
-  if (!hasSupabaseConfig()) {
-    return null;
-  }
-
-  if (!supabaseClient && window.supabase) {
-    supabaseClient = window.supabase.createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseAnonKey);
-  }
-
-  return supabaseClient;
+function buildRecordUrl(id) {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('id', id);
+  return url.toString();
 }
 
-function loadLocalRecords() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return Array.isArray(saved) ? saved : [];
-  } catch {
-    return [];
-  }
+function getIdFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('id');
 }
 
-function saveLocalRecords() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-}
-
-function nextAssetCodeFromList(list) {
-  const largestCode = list.reduce((largest, record) => {
-    const match = /^MOB-(\d+)$/.exec(record.id);
-    return match ? Math.max(largest, Number(match[1])) : largest;
-  }, 0);
-
-  return `MOB-${String(largestCode + 1).padStart(3, '0')}`;
-}
-
-function nextAssetCode() {
-  return nextAssetCodeFromList(records);
-}
-
-function setFormMessage(message = '', isError = false) {
-  formMessage.textContent = message;
+function showMessage(text, isError = false) {
+  formMessage.textContent = text;
   formMessage.classList.toggle('error', isError);
-}
-
-function resetForm() {
-  form.reset();
-  photoPreview.hidden = true;
-  photoPreviewImage.src = '';
-  assetCode.textContent = nextAssetCode();
-  setFormMessage();
-  generatedRecord = null;
-  qrContainer.replaceChildren();
-  qrPlaceholder.hidden = false;
-  qrLabel.hidden = true;
-  qrLabel.textContent = '';
-  downloadQrButton.disabled = true;
 }
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('No se pudo leer la foto.'));
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
 }
 
+function getLocalRecords() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalRecords(records) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+}
+
+// ---------------------------------------------------------------------------
+// Persistencia: Supabase con fallback a localStorage
+// ---------------------------------------------------------------------------
+async function saveRecord(record) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('furniture').upsert(record, { onConflict: 'id' });
+    if (error) {
+      if (!CONFIG.localFallback) throw error;
+      console.warn('Supabase falló, guardando localmente.', error);
+    } else {
+      return;
+    }
+  }
+  const records = getLocalRecords();
+  const idx = records.findIndex((r) => r.id === record.id);
+  if (idx >= 0) records[idx] = record;
+  else records.unshift(record);
+  saveLocalRecords(records);
+}
+
+async function fetchRecordById(id) {
+  if (supabaseClient) {
+    const { data, error } = await supabaseClient.from('furniture').select('*').eq('id', id).maybeSingle();
+    if (!error && data) return data;
+    if (error) console.warn('Supabase falló al buscar el registro, probando localStorage.', error);
+  }
+  return getLocalRecords().find((r) => r.id === id) || null;
+}
+
+async function fetchAllRecords() {
+  if (supabaseClient) {
+    const { data, error } = await supabaseClient.from('furniture').select('*').order('created_at', { ascending: false });
+    if (!error && data) return data;
+    if (error) console.warn('Supabase falló al listar registros, usando localStorage.', error);
+  }
+  return getLocalRecords();
+}
+
+async function deleteRecord(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('furniture').delete().eq('id', id);
+    if (error) console.warn('Supabase falló al borrar, borrando localmente igual.', error);
+  }
+  const records = getLocalRecords().filter((r) => r.id !== id);
+  saveLocalRecords(records);
+}
+
+// ---------------------------------------------------------------------------
+// Formulario -> Registro
+// ---------------------------------------------------------------------------
 async function getRecordFromForm() {
-  const data = new FormData(form);
-  const type = String(data.get('type') || '').trim();
-  const location = String(data.get('location') || '').trim();
-  const selectedFile = photoInput.files && photoInput.files[0] ? photoInput.files[0] : null;
-  const photo = selectedFile ? await fileToDataUrl(selectedFile) : '';
+  let photoData = '';
+  const file = photoInput.files && photoInput.files[0];
+  if (file) {
+    photoData = await fileToDataUrl(file);
+  }
 
   return {
-    id: assetCode.textContent,
-    name: `${type} · ${location}`.trim(),
-    type,
-    location,
-    status: String(data.get('status') || '').trim(),
-    notes: String(data.get('notes') || '').trim(),
-    photo,
+    id: currentAssetId || generateId(),
+    name: `${typeInput.value} - ${locationInput.value}`,
+    type: typeInput.value,
+    location: locationInput.value,
+    status: statusInput.value,
+    notes: notesInput.value || '',
+    photo: photoData,
+    created_at: new Date().toISOString(),
   };
 }
 
-function validateRecord(record) {
-  if (!record.type || !record.location || !record.status) {
-    return 'Completa el tipo, la oficina y el estado.';
-  }
+function renderQr(record) {
+  qrContainer.innerHTML = '';
+  const url = buildRecordUrl(record.id);
 
-  return '';
-}
-
-function buildRecordUrl(record) {
-  const url = new URL(window.location.href);
-  url.search = '';
-  url.hash = '';
-  url.searchParams.set('mueble', record.id);
-  return url.toString();
-}
-
-async function fetchRecordById(recordId) {
-  const client = getSupabaseClient();
-
-  if (client) {
-    const { data, error } = await client
-      .from('furniture')
-      .select('*')
-      .eq('id', recordId)
-      .maybeSingle();
-
-    if (error) {
-      console.error('No se pudo cargar el registro desde Supabase:', error);
-      return null;
-    }
-
-    return data || null;
-  }
-
-  const localRecord = loadLocalRecords().find((record) => record.id === recordId);
-  return localRecord || null;
-}
-
-async function readRecordFromUrl(urlText = window.location.href) {
-  try {
-    const url = new URL(urlText, window.location.href);
-    const recordId = url.searchParams.get('mueble');
-
-    if (!recordId) {
-      return null;
-    }
-
-    return fetchRecordById(recordId);
-  } catch {
-    return null;
-  }
-}
-
-function isValidRecord(record) {
-  return Boolean(
-    record
-    && typeof record === 'object'
-    && typeof record.id === 'string'
-    && typeof record.name === 'string'
-    && typeof record.type === 'string'
-    && typeof record.location === 'string'
-    && typeof record.status === 'string'
-  );
-}
-
-function showQr(record) {
-  if (typeof QRCode === 'undefined') {
-    setFormMessage('No se pudo cargar la libreria para generar el QR. Revisa tu conexion.', true);
-    return;
-  }
-
-  try {
-    qrContainer.replaceChildren();
-    const qrUrl = buildRecordUrl(record);
-    console.log('QR URL:', qrUrl);
-    new QRCode(qrContainer, {
-      text: qrUrl,
-      width: QR_SIZE,
-      height: QR_SIZE,
-      correctLevel: QRCode.CorrectLevel.M,
-    });
-    generatedRecord = record;
-    qrPlaceholder.hidden = true;
-    qrLabel.hidden = false;
-    qrLabel.textContent = `${record.id} - ${record.name}`;
-    downloadQrButton.disabled = false;
-  } catch (error) {
-    console.error('No se pudo generar el codigo QR:', error);
-    setFormMessage('La ficha tiene demasiado texto para un QR. Acorta las observaciones e intenta otra vez.', true);
-  }
-}
-
-async function loadRecords() {
-  const client = getSupabaseClient();
-
-  if (client) {
-    const { data, error } = await client
-      .from('furniture')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error al cargar muebles desde Supabase:', error);
-      setFormMessage('No se pudo cargar el inventario compartido.', true);
-      return [];
-    }
-
-    records = data || [];
-    return records;
-  }
-
-  records = loadLocalRecords();
-  return records;
-}
-
-async function persistRecord(record) {
-  const client = getSupabaseClient();
-
-  if (client) {
-    const payload = {
-      id: record.id,
-      name: record.name,
-      type: record.type,
-      location: record.location,
-      status: record.status,
-      notes: record.notes || '',
-      photo: record.photo || '',
-    };
-
-    const { error } = await client.from('furniture').upsert([payload], { onConflict: 'id' });
-    if (error) {
-      throw error;
-    }
-    return;
-  }
-
-  records = [record, ...records.filter((savedRecord) => savedRecord.id !== record.id)];
-  saveLocalRecords();
-}
-
-async function deleteRecord(recordId) {
-  const client = getSupabaseClient();
-
-  if (client) {
-    const { error } = await client.from('furniture').delete().eq('id', recordId);
-    if (error) {
-      throw error;
-    }
-    records = await loadRecords();
-    renderRecords();
-    return;
-  }
-
-  records = records.filter((r) => r.id !== recordId);
-  saveLocalRecords();
-  renderRecords();
-}
-
-async function createRecord() {
-  const record = await getRecordFromForm();
-  const validationMessage = validateRecord(record);
-
-  if (validationMessage) {
-    setFormMessage(validationMessage, true);
-    return;
-  }
-
-  try {
-    console.log('Guardando record:', record);
-    await persistRecord(record);
-    console.log('Record guardado, cargando lista...');
-    records = await loadRecords();
-    console.log('Lista cargada:', records);
-    renderRecords();
-    console.log('Mostrando QR para:', record);
-    showQr(record);
-    setFormMessage(`Listo. Generaste la etiqueta de ${record.id}.`);
-  } catch (error) {
-    console.error('No se pudo guardar el registro:', error);
-    setFormMessage('No se pudo guardar el registro. Intenta otra vez.', true);
-  }
-}
-
-function renderRecords() {
-  savedRecords.replaceChildren();
-  recordCount.textContent = `${records.length} ${records.length === 1 ? 'mueble' : 'muebles'}`;
-
-  if (records.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'empty-state';
-    empty.textContent = 'Aun no hay muebles registrados.';
-    savedRecords.append(empty);
-    return;
-  }
-
-  records.forEach((record) => {
-    const item = document.createElement('article');
-    item.className = 'record-item';
-
-    const code = document.createElement('span');
-    code.className = 'record-code';
-    code.textContent = record.id;
-
-    if (record.photo) {
-      const photo = document.createElement('img');
-      photo.className = 'record-photo';
-      photo.src = record.photo;
-      photo.alt = record.name;
-      item.append(photo);
-    }
-
-    const name = document.createElement('p');
-    name.className = 'record-name';
-    name.textContent = record.name;
-
-    const meta = document.createElement('p');
-    meta.className = 'record-meta';
-    meta.textContent = `${record.type} · ${record.location}`;
-
-    const actions = document.createElement('div');
-    actions.className = 'record-actions';
-
-    const generateButton = document.createElement('button');
-    generateButton.type = 'button';
-    generateButton.className = 'button-secondary';
-    generateButton.textContent = 'Ver QR';
-    generateButton.addEventListener('click', () => {
-      showQr(record);
-      document.querySelector('.qr-panel').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
-
-    const viewButton = document.createElement('button');
-    viewButton.type = 'button';
-    viewButton.className = 'button-secondary';
-    viewButton.textContent = 'Ver ficha';
-    viewButton.addEventListener('click', () => renderPublicRecord(record));
-
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.className = 'button-secondary';
-    deleteButton.textContent = 'Borrar';
-    deleteButton.addEventListener('click', async () => {
-      if (confirm(`¿Borrar ${record.name}?`)) {
-        try {
-          await deleteRecord(record.id);
-          setFormMessage(`Se borró ${record.id}.`);
-        } catch (error) {
-          console.error('Error al borrar:', error);
-          setFormMessage('No se pudo borrar el registro.', true);
-        }
-      }
-    });
-
-    actions.append(generateButton, viewButton, deleteButton);
-    item.append(code, name, meta, actions);
-    savedRecords.append(item);
+  currentQrCode = new QRCode(qrContainer, {
+    text: url,
+    width: 220,
+    height: 220,
+    correctLevel: QRCode.CorrectLevel.H,
   });
+
+  qrPlaceholder.hidden = true;
+  qrContainer.hidden = false;
+  qrLabel.textContent = record.name;
+  qrLabel.hidden = false;
+  downloadQrBtn.disabled = false;
+  assetCodeLabel.textContent = record.id;
 }
 
-function addDetail(container, label, value, className = '') {
-  if (!value) {
-    return;
+async function createRecord(event) {
+  event.preventDefault();
+
+  if (!furnitureForm.reportValidity()) return;
+
+  try {
+    showMessage('Guardando...');
+    const record = await getRecordFromForm();
+    await saveRecord(record);
+    currentAssetId = record.id;
+    renderQr(record);
+    showMessage('Mueble guardado correctamente.');
+    await refreshSavedRecords();
+  } catch (error) {
+    console.error(error);
+    showMessage('No se pudo guardar el registro: ' + error.message, true);
   }
-
-  const detail = document.createElement('div');
-  detail.className = className;
-
-  const detailLabel = document.createElement('span');
-  detailLabel.className = 'detail-label';
-  detailLabel.textContent = label;
-
-  const detailValue = document.createElement('p');
-  detailValue.className = 'detail-value';
-  detailValue.textContent = value;
-
-  detail.append(detailLabel, detailValue);
-  container.append(detail);
 }
 
-function renderPublicRecord(record) {
-  adminApp.hidden = true;
-  savedRecordsSection.hidden = true;
-  publicRecord.hidden = false;
-  publicRecord.replaceChildren();
-
-  const header = document.createElement('div');
-  header.className = 'public-record-header';
-
-  const heading = document.createElement('div');
-  const eyebrow = document.createElement('p');
-  eyebrow.className = 'eyebrow';
-  eyebrow.textContent = 'Ficha de mueble';
-  const title = document.createElement('h2');
-  title.textContent = record.name || `${record.type} · ${record.location}`;
-  heading.append(eyebrow, title);
-
-  const code = document.createElement('span');
-  code.className = 'asset-code';
-  code.textContent = record.id;
-  header.append(heading, code);
-
-  const details = document.createElement('div');
-  details.className = 'record-details';
-
-  if (record.photo) {
-    const photoWrap = document.createElement('div');
-    photoWrap.className = 'public-photo';
-    const photo = document.createElement('img');
-    photo.src = record.photo;
-    photo.alt = record.name;
-    photoWrap.append(photo);
-    details.append(photoWrap);
-  }
-
-  addDetail(details, 'Tipo', record.type);
-  addDetail(details, 'Ubicacion', record.location);
-  addDetail(details, 'Estado', record.status);
-  addDetail(details, 'Observaciones', record.notes, 'notes-detail');
-
-  const notice = document.createElement('p');
-  notice.className = 'public-notice';
-  notice.textContent = 'Esta ficha se muestra desde el codigo QR del mueble.';
-
-  publicRecord.append(header, details, notice);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+function resetForm() {
+  furnitureForm.reset();
+  currentAssetId = null;
+  assetCodeLabel.textContent = '';
+  photoPreview.hidden = true;
+  photoPreviewImage.src = '';
+  qrContainer.innerHTML = '';
+  qrContainer.hidden = true;
+  qrPlaceholder.hidden = false;
+  qrLabel.hidden = true;
+  downloadQrBtn.disabled = true;
+  showMessage('');
 }
 
 function downloadQr() {
-  const image = qrContainer.querySelector('img');
   const canvas = qrContainer.querySelector('canvas');
-  const source = image?.src || canvas?.toDataURL('image/png');
-
-  if (!source || !generatedRecord) {
-    return;
-  }
+  const img = qrContainer.querySelector('img');
+  const source = canvas || img;
+  if (!source) return;
 
   const link = document.createElement('a');
-  link.href = source;
-  link.download = `${generatedRecord.id}-qr.png`;
-  document.body.append(link);
+  link.download = `qr-${currentAssetId || 'mueble'}.png`;
+  link.href = canvas ? canvas.toDataURL('image/png') : img.src;
   link.click();
-  link.remove();
 }
 
-function setScanResult(message) {
-  scanResult.textContent = message;
-}
-
-async function startScanner() {
-  if (html5QrCode || typeof Html5Qrcode === 'undefined') {
-    if (typeof Html5Qrcode === 'undefined') {
-      setScanResult('No se pudo cargar el lector. Revisa tu conexion.');
-    }
+photoInput.addEventListener('change', async () => {
+  const file = photoInput.files && photoInput.files[0];
+  if (!file) {
+    photoPreview.hidden = true;
     return;
   }
-
-  reader.hidden = false;
-  startScanButton.disabled = true;
-  stopScanButton.disabled = false;
-  setScanResult('Buscando un codigo QR...');
-
-  try {
-    html5QrCode = new Html5Qrcode('reader');
-    const devices = await Html5Qrcode.getCameras();
-    const backCamera = devices.find((device) => /back|rear|environment/i.test(device.label));
-    const cameraId = (backCamera || devices[0])?.id;
-
-    if (!cameraId) {
-      throw new Error('No hay camara disponible.');
-    }
-
-    await html5QrCode.start(
-      cameraId,
-      { fps: 10, qrbox: { width: 220, height: 220 } },
-      async (decodedText) => {
-        await handleScannedText(decodedText);
-      },
-      () => {}
-    );
-  } catch (error) {
-    console.error('No se pudo iniciar la camara:', error);
-    setScanResult('No se pudo abrir la camara. Revisa los permisos y usa HTTPS o localhost.');
-    await stopScanner(false);
-  }
-}
-
-async function handleScannedText(decodedText) {
-  const record = await readRecordFromUrl(decodedText);
-
-  if (record && isValidRecord(record)) {
-    setScanResult(`Se encontro ${record.id}. Abriendo ficha...`);
-    stopScanner(false).finally(() => renderPublicRecord(record));
-    return;
-  }
-
-  setScanResult('Este QR no corresponde a una ficha creada en este inventario.');
-}
-
-async function stopScanner(showStoppedMessage = true) {
-  const scanner = html5QrCode;
-  html5QrCode = null;
-
-  if (scanner) {
-    try {
-      await scanner.stop();
-      await scanner.clear();
-    } catch (error) {
-      console.warn('No se pudo cerrar la camara:', error);
-    }
-  }
-
-  reader.hidden = true;
-  startScanButton.disabled = false;
-  stopScanButton.disabled = true;
-
-  if (showStoppedMessage) {
-    setScanResult('La camara esta apagada.');
-  }
-}
-
-function updateStorageModeLabel() {
-  if (!headerStatus || !savedTitle) {
-    return;
-  }
-
-  if (hasSupabaseConfig()) {
-    headerStatus.textContent = 'Guardado en Supabase';
-    savedTitle.textContent = 'Inventario compartido';
-    return;
-  }
-
-  headerStatus.textContent = 'Guardado en este equipo';
-  savedTitle.textContent = 'Muebles registrados';
-}
-
-async function initialize() {
-  records = await loadRecords();
-  updateStorageModeLabel();
-
-  if (hasSupabaseConfig()) {
-    setFormMessage('Usando inventario compartido en Supabase.');
-  }
-
-  const recordFromUrl = await readRecordFromUrl();
-
-  if (recordFromUrl && isValidRecord(recordFromUrl)) {
-    renderPublicRecord(recordFromUrl);
-    return;
-  }
-
-  resetForm();
-  renderRecords();
-}
-
-form.addEventListener('submit', (event) => {
-  console.log('Form submit triggered');
-  event.preventDefault();
-  createRecord();
+  photoPreviewImage.src = await fileToDataUrl(file);
+  photoPreview.hidden = false;
 });
+
+furnitureForm.addEventListener('submit', createRecord);
+clearFormBtn.addEventListener('click', resetForm);
+downloadQrBtn.addEventListener('click', downloadQr);
+
+// ---------------------------------------------------------------------------
+// Lista de muebles guardados
+// ---------------------------------------------------------------------------
+async function refreshSavedRecords() {
+  const records = await fetchAllRecords();
+  recordCountLabel.textContent = `${records.length} mueble${records.length === 1 ? '' : 's'}`;
+
+  if (records.length === 0) {
+    savedRecordsList.innerHTML = '<p class="empty-state">Aún no hay muebles registrados.</p>';
+    return;
+  }
+
+  savedRecordsList.innerHTML = '';
+  records.forEach((record) => {
+    const item = document.createElement('div');
+    item.className = 'record-item';
+
+    item.innerHTML = `
+      ${record.photo ? `<img class="record-photo" src="${record.photo}" alt="Foto de ${record.name}" />` : ''}
+      <span class="record-code">${record.id}</span>
+      <span class="record-name">${record.name}</span>
+      <span class="record-meta">${record.status}${record.notes ? ' · ' + record.notes : ''}</span>
+      <div class="record-actions">
+        <button type="button" data-action="view" data-id="${record.id}">Ver ficha</button>
+        <button type="button" class="button-secondary" data-action="delete" data-id="${record.id}">Eliminar</button>
+      </div>
+    `;
+    savedRecordsList.appendChild(item);
+  });
+
+  savedRecordsList.querySelectorAll('[data-action="view"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      window.location.href = buildRecordUrl(btn.dataset.id);
+    });
+  });
+
+  savedRecordsList.querySelectorAll('[data-action="delete"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este mueble?')) return;
+      await deleteRecord(btn.dataset.id);
+      await refreshSavedRecords();
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Vista pública (al escanear el QR)
+// ---------------------------------------------------------------------------
+async function renderPublicRecord(id) {
+  adminApp.hidden = true;
+  savedRecordsSection.hidden = true;
+
+  const record = await fetchRecordById(id);
+
+  if (!record) {
+    publicRecordSection.hidden = false;
+    publicRecordSection.innerHTML = `
+      <div class="public-record-header">
+        <div>
+          <p class="eyebrow">Mueble no encontrado</p>
+          <h2>No existe un registro con este código</h2>
+        </div>
+      </div>
+      <p class="public-notice">Verifica que el código QR corresponda a un mueble registrado.</p>
+    `;
+    return;
+  }
+
+  publicRecordSection.hidden = false;
+  publicRecordSection.innerHTML = `
+    <div class="public-record-header">
+      <div>
+        <p class="eyebrow">Ficha del mueble</p>
+        <h2>${record.name}</h2>
+      </div>
+      <span class="asset-code">${record.id}</span>
+    </div>
+    <div class="record-details">
+      ${record.photo ? `<div class="public-photo"><img src="${record.photo}" alt="Foto de ${record.name}" /></div>` : ''}
+      <div>
+        <span class="detail-label">Tipo</span>
+        <span class="detail-value">${record.type}</span>
+      </div>
+      <div>
+        <span class="detail-label">Oficina</span>
+        <span class="detail-value">${record.location}</span>
+      </div>
+      <div>
+        <span class="detail-label">Estado</span>
+        <span class="detail-value">${record.status}</span>
+      </div>
+      ${record.notes ? `
+      <div class="notes-detail">
+        <span class="detail-label">Observaciones</span>
+        <span class="detail-value">${record.notes}</span>
+      </div>` : ''}
+    </div>
+    <p class="public-notice">Consulta generada al escanear el código QR de este mueble.</p>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Inicio: decide si mostrar la ficha pública o la app de registro
+// ---------------------------------------------------------------------------
+async function init() {
+  const id = getIdFromUrl();
+  if (id) {
+    await renderPublicRecord(id);
+  } else {
+    await refreshSavedRecords();
+  }
+}
+
+init();
